@@ -14,7 +14,6 @@ Amplify.configure(outputs);
 
 const client = generateClient<Schema>();
 
-// Note: Hardcoding credentials is not recommended. Use environment variables or a secure key management system in a real application.
 const accessKeyId = import.meta.env.VITE_AWS_ACCESS_KEY_ID || '';
 const secretAccessKey = import.meta.env.VITE_AWS_SECRET_ACCESS_KEY || '';
 
@@ -65,6 +64,7 @@ const App: React.FC = () => {
     file: null,
   });
   const [result, setResult] = useState<LambdaResult | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { id, value, files } = event.target;
@@ -104,6 +104,8 @@ const App: React.FC = () => {
     if (!state.file) {
       return;
     }
+
+    setLoading(true);
 
     try {
       // check if company exists
@@ -162,6 +164,8 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Error:", error);
       alert("Failed to upload file or invoke Lambda.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -208,6 +212,11 @@ const App: React.FC = () => {
           styles="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
         />
       </form>
+      {loading && (
+        <div className="text-center">
+          <p className="text-blue-500">Processing...</p>
+        </div>
+      )}
       <ResultDisplay result={result} />
     </main>
   );
