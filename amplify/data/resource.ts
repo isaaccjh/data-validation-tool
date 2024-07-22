@@ -8,12 +8,12 @@ specifies that any user authenticated via an API key can "create", "read",
 =========================================================================*/
 const schema = a.schema({
   Info: a
-    .model({
-      companyName: a.string(),
-      productName: a.string(),
-      ppgSensorModel: a.string(),
-    })
-    .authorization((allow) => [allow.publicApiKey()]),
+  .model({
+    companyName: a.string(),
+    productName: a.string(),
+    ppgSensorModel: a.string(),
+  })
+  .authorization((allow) => [allow.publicApiKey()]),
 });
 
 export type Schema = ClientSchema<typeof schema>;
