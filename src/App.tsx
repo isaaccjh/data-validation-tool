@@ -101,7 +101,7 @@ const App: React.FC = () => {
         if (errors) {
           console.error(errors);
         } else {
-          const companies = Array.from(new Set(infos.map((info: any) => info.companyName)));
+          const companies = [...new Set(infos.map((info: any) => info.companyName))];
           setCompanyOptions(companies);
         }
       } catch (error) {
@@ -114,6 +114,7 @@ const App: React.FC = () => {
 
   const invokeLambda = async (funcName: string, payload: any) => {
     const stringifiedPayload = JSON.stringify(payload);
+    console.log(payload)
     const command = new InvokeCommand({
       FunctionName: funcName,
       Payload: new TextEncoder().encode(stringifiedPayload),
@@ -157,7 +158,13 @@ const App: React.FC = () => {
         console.error(errors);
       } 
       const info = infos.length > 0 ? infos[0] : null;
-
+      if (info && info.productName !==  state.productName) {
+        await client.models.Info.create({
+          companyName: state.companyName,
+          productName: state.productName,
+          ppgSensorModel: [state.ppgSensorModel]
+        });
+      }
       if (!info) {
         await client.models.Info.create({
           companyName: state.companyName,
@@ -166,15 +173,21 @@ const App: React.FC = () => {
         });
       } else {
         // Update the existing info with the new PPG sensor model
-        const updatedSensorModels = Array.from(new Set([...(info.ppgSensorModel || []), state.ppgSensorModel]));
+        let existingSensors = info.ppgSensorModel;
+        if (!Array.isArray(existingSensors)) {
+          existingSensors = existingSensors ? [existingSensors] : [];
+        }
+        const updatedSensorModels = [...existingSensors, state.ppgSensorModel];
+        const uniqueSensorModels = updatedSensorModels.filter((value, index, self) =>
+          self.indexOf(value) === index
+        );
         await client.models.Info.update({
           id: info.id,
-          ppgSensorModel: updatedSensorModels
+          ppgSensorModel: uniqueSensorModels
         });
       }
 
-      const timestamp = getFormattedTimestamp();
-      const fileKey = `${state.companyName}/${state.productName}/${state.productName}/${state.file.name}_${timestamp}`;
+      const fileKey = `${state.companyName}/${state.productName}/${state.file.name.split('.')[0]}.zip`;
       
       const command = new PutObjectCommand({
         Bucket: "signal-quality-check-test",
@@ -189,7 +202,7 @@ const App: React.FC = () => {
         console.log("File uploaded successfully");
 
         const payload = {
-          key: state.file.name,
+          key: fileKey,
           companyName: state.companyName,
           productName: state.productName,
           ppgSensorModel: state.ppgSensorModel,
@@ -201,6 +214,19 @@ const App: React.FC = () => {
         );
         setResult(lambdaResult);
         alert("Lambda invoked successfully!");
+
+        // Clear the form after successful submission
+        setState({
+          companyName: "",
+          productName: "",
+          ppgSensorModel: "",
+          file: null,
+        });
+        // Clear the file input
+        const fileInput = document.getElementById('file') as HTMLInputElement;
+        if (fileInput) {
+          fileInput.value = '';
+        }
       }
     } catch (error) {
       console.error("Error:", error);
@@ -231,15 +257,20 @@ const App: React.FC = () => {
         alert("Error fetching sensors.");
       } else {
         const allSensors = infos.flatMap((info: any) => {
-          // Check if ppgSensorModel is an array and not null
           if (Array.isArray(info.ppgSensorModel)) {
-            // Filter out any null values and return the array
             return info.ppgSensorModel.filter((sensor: string | null): sensor is string => sensor !== null);
+          } else if (typeof info.ppgSensorModel === 'string') {
+            return [info.ppgSensorModel];
+          } else if (info.ppgSensorModel === null || info.ppgSensorModel === undefined) {
+            return [];
+          } else {
+            return [String(info.ppgSensorModel)];
           }
-          // If it's not an array or is null, return an empty array
-          return [];
         });
-        const uniqueSensors = Array.from(new Set(allSensors));
+        
+        const uniqueSensors = allSensors.filter((value, index, self) =>
+          self.indexOf(value) === index
+        );
         setSensorOptions(uniqueSensors);
         if (uniqueSensors.length > 0) {
           setState(prevState => ({ ...prevState, ppgSensorModel: "" }));
@@ -254,6 +285,18 @@ const App: React.FC = () => {
       setLoading(false);
     }
   };
+  const styles = {
+    "div": "bg-white shadow-md rounded-lg p-6 mt-6",
+    "h2": "text-2xl font-bold mb-4",
+    "h3": "text-xl font-semibold mb-2",
+    "success": "text-green-600",
+    "error": "text-red-600",
+    "p": "text-lg font-semibold mb-4",
+    "ul": "list-disc list-inside",
+    "li": "mb-2",
+    "signalMessage": "font-medium",
+    "noErrors": "text-lg font-semibold text-green-600"
+  }
 
   return (
     <main className="container mx-auto max-w-2xl p-4">
@@ -281,9 +324,9 @@ const App: React.FC = () => {
               type="button"
               onClick={fetchSensors}
               disabled={!isCompanyInOptions}
-              className={`text-white py-2 px-4 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 whitespace-nowrap ${
+              className={`text-white py-2 px-4 h-10 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 whitespace-nowrap ${
                 isCompanyInOptions
-                  ? "bg-green-500 hover:bg-green-600"
+                  ? "bg-blue-500 hover:bg-blue-600"
                   : "bg-gray-400 cursor-not-allowed"
               }`}
             >
@@ -331,7 +374,7 @@ const App: React.FC = () => {
           <p className="text-blue-500">Processing...</p>
         </div>
       )}
-      <ResultDisplay result={result} />
+      <ResultDisplay result={result} styles={styles} />
     </main>
   );
 };

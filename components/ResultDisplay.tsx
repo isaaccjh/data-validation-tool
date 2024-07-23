@@ -1,4 +1,5 @@
 import React from 'react';
+import "../src/index.css"
 
 interface ResultDisplayProps {
   result: {
@@ -9,28 +10,30 @@ interface ResultDisplayProps {
       };
     };
   } | null;
+  styles: { [key: string]: string };
 }
 
-export const ResultDisplay: React.FC<ResultDisplayProps> = ({ result }) => {
+
+export const ResultDisplay: React.FC<ResultDisplayProps> = ({ result, styles }) => {
   if (!result) return null;
 
   return (
-    <div className="bg-white shadow-md rounded-lg p-6 mt-6">
-      <h2 className="text-2xl font-bold mb-4">Result</h2>
-      <p className="text-lg font-semibold mb-4">Success Percentage: <span className="text-green-600">{result.success_percentage}%</span></p>
+    <div className={styles.div}>
+      <h2 className={styles.h2}>Result</h2>
+      <p className={styles.p}>Success Percentage: <span className={styles.success}>{result.success_percentage}%</span></p>
       {Object.keys(result.errors).length > 0 ? (
         <div>
-          <h3 className="text-xl font-semibold mb-2">Errors:</h3>
-          <ul className="list-disc list-inside text-red-600">
+          <h3 className={styles.h3}>Errors:</h3>
+          <ul className={styles.ul + " " +styles.error}>
             {Object.entries(result.errors).map(([fileName, errorDetails]) => (
-              <li key={fileName} className="mb-2">
-                <span className="font-medium">{fileName}</span>: {errorDetails.signal_message}
+              <li key={fileName} className={styles.li}>
+                <span className={styles.signalMessage}>{fileName}</span>: {errorDetails.signal_message}
               </li>
             ))}
           </ul>
         </div>
       ) : (
-        <p className="text-lg font-semibold text-green-600">No errors found.</p>
+        <p className={styles.noErrors}>No errors found.</p>
       )}
     </div>
   );
