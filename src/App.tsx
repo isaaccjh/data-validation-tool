@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { InvokeCommand, LambdaClient, LogType } from "@aws-sdk/client-lambda";
 import { TextInput } from "../components/TextInput";
 import { FileInput } from "../components/FileInput";
 import { SubmitButton } from "../components/SubmitButton";
 import { ResultDisplay } from "../components/ResultDisplay";
+import { SelectWithInput } from "../components/SelectWithInput";
 import { generateClient } from 'aws-amplify/data';
-import { type Schema } from '../amplify/data/resource'
+import { type Schema } from '../amplify/data/resource';
 import { Amplify } from 'aws-amplify';
 import outputs from "../amplify_outputs.json";
 
@@ -47,7 +48,7 @@ const getFormattedTimestamp = () => {
   const now = new Date();
   
   const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0'); // Months are zero-indexed
+  const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
@@ -65,18 +66,51 @@ const App: React.FC = () => {
   });
   const [result, setResult] = useState<LambdaResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [companyOptions, setCompanyOptions] = useState<string[]>([]);
+  const [sensorOptions, setSensorOptions] = useState<string[]>([]);
 
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { id, value, files } = event.target;
-    const newState = files
-      ? { ...state, file: files[0] }
-      : { ...state, [id]: value };
-    setState(newState);
+  const isCompanyInOptions = useMemo(() => {
+    return companyOptions.includes(state.companyName);
+  }, [companyOptions, state.companyName]);
+
+  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { id, value } = event.target;
+  
+    if (event.target instanceof HTMLInputElement) {
+      if (event.target.type === "file") {
+        const files = event.target.files;
+        if (files && files.length > 0) {
+          setState((prevState) => ({ ...prevState, file: files[0] }));
+        }
+      } else {
+        setState((prevState) => ({ ...prevState, [id]: value }));
+      }
+    } else if (event.target instanceof HTMLSelectElement) {
+      setState((prevState) => ({ ...prevState, [id]: value }));
+    }
   };
 
   useEffect(() => {
     console.log(state);
   }, [state]);
+
+  useEffect(() => {
+    const fetchCompanies = async () => {
+      try {
+        const { data: infos, errors } = await client.models.Info.list({});
+        if (errors) {
+          console.error(errors);
+        } else {
+          const companies = Array.from(new Set(infos.map((info: any) => info.companyName)));
+          setCompanyOptions(companies);
+        }
+      } catch (error) {
+        console.error("Error fetching companies:", error);
+      }
+    };
+
+    fetchCompanies();
+  }, []);
 
   const invokeLambda = async (funcName: string, payload: any) => {
     const stringifiedPayload = JSON.stringify(payload);
@@ -108,7 +142,10 @@ const App: React.FC = () => {
     setLoading(true);
 
     try {
-      // check if company exists
+      if (!companyOptions.includes(state.companyName)) {
+        setCompanyOptions((prevOptions) => [...prevOptions, state.companyName]);
+      }
+
       const { data: infos, errors } = await client.models.Info.list({
         filter: {
           companyName: {
@@ -121,19 +158,24 @@ const App: React.FC = () => {
       } 
       const info = infos.length > 0 ? infos[0] : null;
 
-      // Create data on company
       if (!info) {
         await client.models.Info.create({
           companyName: state.companyName,
           productName: state.productName,
-          ppgSensorModel: state.ppgSensorModel
-        })
-      } 
+          ppgSensorModel: [state.ppgSensorModel]
+        });
+      } else {
+        // Update the existing info with the new PPG sensor model
+        const updatedSensorModels = Array.from(new Set([...(info.ppgSensorModel || []), state.ppgSensorModel]));
+        await client.models.Info.update({
+          id: info.id,
+          ppgSensorModel: updatedSensorModels
+        });
+      }
 
-      const timestamp = getFormattedTimestamp()
-      const fileKey = `${state.companyName}/${state.productName}/${state.productName}/${state.file.name}_${timestamp}`
+      const timestamp = getFormattedTimestamp();
+      const fileKey = `${state.companyName}/${state.productName}/${state.productName}/${state.file.name}_${timestamp}`;
       
-      // Upload file to S3 using AWS SDK
       const command = new PutObjectCommand({
         Bucket: "signal-quality-check-test",
         Key: fileKey,
@@ -146,7 +188,6 @@ const App: React.FC = () => {
       if (response.$metadata.httpStatusCode === 200) {
         console.log("File uploaded successfully");
 
-        // Invoke Lambda function
         const payload = {
           key: state.file.name,
           companyName: state.companyName,
@@ -169,20 +210,87 @@ const App: React.FC = () => {
     }
   };
 
+  const fetchSensors = async () => {
+    if (!state.companyName) {
+      alert("Please enter a company name first.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data: infos, errors } = await client.models.Info.list({
+        filter: {
+          companyName: {
+            eq: state.companyName
+          }
+        }
+      });
+
+      if (errors) {
+        console.error(errors);
+        alert("Error fetching sensors.");
+      } else {
+        const allSensors = infos.flatMap((info: any) => {
+          // Check if ppgSensorModel is an array and not null
+          if (Array.isArray(info.ppgSensorModel)) {
+            // Filter out any null values and return the array
+            return info.ppgSensorModel.filter((sensor: string | null): sensor is string => sensor !== null);
+          }
+          // If it's not an array or is null, return an empty array
+          return [];
+        });
+        const uniqueSensors = Array.from(new Set(allSensors));
+        setSensorOptions(uniqueSensors);
+        if (uniqueSensors.length > 0) {
+          setState(prevState => ({ ...prevState, ppgSensorModel: "" }));
+        } else {
+          alert(`No sensors found for ${state.companyName}. You can add a new sensor model.`);
+        }
+      }
+    } catch (error) {
+      console.error("Error fetching sensors:", error);
+      alert("Failed to fetch sensors.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <main className="container mx-auto max-w-2xl p-4">
       <form
         onSubmit={handleSubmit}
         className="space-y-6 shadow-md rounded px-8 pt-6 pb-8 mb-4"
       >
-        <TextInput
-          id="companyName"
-          label="Company Name:"
-          value={state.companyName}
-          onChange={handleInputChange}
-          labelStyles="block mb-2 font-bold text-sm text-gray-700"
-          inputStyles="w-full p-2 text-sm border rounded border-gray-300"
-        />
+        <div className="flex flex-col space-y-2">
+          <label htmlFor="companyName" className="block font-bold text-sm text-gray-700">
+            Company Name:
+          </label>
+          <div className="flex space-x-4">
+            <div className="flex-grow">
+              <SelectWithInput
+                id="companyName"
+                label=""
+                options={companyOptions}
+                value={state.companyName}
+                onChange={handleInputChange}
+                labelStyles="sr-only"
+                inputStyles="w-full p-2 text-sm border rounded border-gray-300"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={fetchSensors}
+              disabled={!isCompanyInOptions}
+              className={`text-white py-2 px-4 rounded-md shadow-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 whitespace-nowrap ${
+                isCompanyInOptions
+                  ? "bg-green-500 hover:bg-green-600"
+                  : "bg-gray-400 cursor-not-allowed"
+              }`}
+            >
+              Fetch Sensors
+            </button>
+          </div>
+        </div>
         <TextInput
           id="productName"
           label="Product Name/Model:"
@@ -191,14 +299,20 @@ const App: React.FC = () => {
           labelStyles="block mb-2 font-bold text-sm text-gray-700"
           inputStyles="w-full p-2 text-sm border rounded border-gray-300"
         />
-        <TextInput
-          id="ppgSensorModel"
-          label="PPG Sensor Model:"
-          value={state.ppgSensorModel}
-          onChange={handleInputChange}
-          labelStyles="block mb-2 font-bold text-sm text-gray-700"
-          inputStyles="w-full p-2 text-sm border rounded border-gray-300"
-        />
+        <div className="flex flex-col space-y-2">
+          <label htmlFor="ppgSensorModel" className="block font-bold text-sm text-gray-700">
+            PPG Sensor Model:
+          </label>
+          <SelectWithInput
+            id="ppgSensorModel"
+            label=""
+            options={sensorOptions}
+            value={state.ppgSensorModel}
+            onChange={handleInputChange}
+            labelStyles="sr-only"
+            inputStyles="w-full p-2 text-sm border rounded border-gray-300"
+          />
+        </div>
         <FileInput
           id="file"
           label="Upload PPG data CSV files (.zip):"

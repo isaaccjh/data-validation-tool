@@ -11,7 +11,7 @@ const schema = a.schema({
   .model({
     companyName: a.string(),
     productName: a.string(),
-    ppgSensorModel: a.string(),
+    ppgSensorModel: a.string().array(),
   })
   .authorization((allow) => [allow.publicApiKey()]),
 });
